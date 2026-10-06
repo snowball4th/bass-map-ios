@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#0b0d0c">
+<title>Bass Map</title>
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --ink:#101311;--muted:#747a76;--glass:rgba(250,252,250,.82);
+  --glass-dark:rgba(15,18,16,.78);--line:rgba(15,20,16,.08);
+  --accent:#b8ff3d;--shadow:0 14px 44px rgba(0,0,0,.16);
+}
+*{box-sizing:border-box}
+html,body,#map{width:100%;height:100%;margin:0}
+body{overflow:hidden;background:#dfe5df;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+button{font:inherit}
+#map{position:fixed;inset:0;background:#dfe5df}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(255,255,255,.68)!important;backdrop-filter:blur(8px)}
+.leaflet-control-zoom{display:none}
+.leaflet-pane.leaflet-tile-pane{filter:saturate(.82) contrast(.96)}
+body.satellite .leaflet-pane.leaflet-tile-pane{filter:saturate(.72) contrast(1.04) brightness(.92)}
+
+.top{
+ position:fixed;z-index:1000;left:14px;right:14px;top:max(14px,env(safe-area-inset-top));
+ height:58px;padding:8px 8px 8px 16px;display:flex;align-items:center;gap:10px;
+ border:1px solid rgba(255,255,255,.55);border-radius:19px;background:var(--glass);
+ backdrop-filter:blur(22px) saturate(1.35);-webkit-backdrop-filter:blur(22px) saturate(1.35);
+ box-shadow:0 10px 32px rgba(0,0,0,.10)
+}
+.identity{min-width:0;line-height:1.05}
+.identity strong{font-size:16px;letter-spacing:-.35px;font-weight:720}
+.identity small{display:block;margin-top:5px;color:var(--muted);font-size:11px;font-weight:520}
+.grow{flex:1}
+.circle{
+ width:42px;height:42px;border:0;border-radius:14px;display:grid;place-items:center;
+ background:rgba(255,255,255,.72);color:#171a18;box-shadow:inset 0 0 0 1px rgba(0,0,0,.055);
+ cursor:pointer;-webkit-tap-highlight-color:transparent
+}
+.circle:active{transform:scale(.96)}
+.circle svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.mode{
+ position:fixed;z-index:1000;right:14px;top:calc(max(14px,env(safe-area-inset-top)) + 70px);
+ padding:5px;border-radius:15px;background:rgba(17,20,18,.78);backdrop-filter:blur(18px);
+ display:flex;gap:3px;box-shadow:0 8px 24px rgba(0,0,0,.16)
+}
+.mode button{border:0;border-radius:11px;padding:8px 11px;color:rgba(255,255,255,.62);background:transparent;font-size:11px;font-weight:650;cursor:pointer}
+.mode button.active{color:#111;background:#fff}
+
+.photo-marker{position:relative;width:50px;height:50px}
+.photo-marker .ring{
+ width:50px;height:50px;border-radius:16px;padding:3px;background:#fff;
+ box-shadow:0 7px 22px rgba(0,0,0,.28);transform:rotate(-1.5deg);transition:.18s ease
+}
+.photo-marker:hover .ring{transform:translateY(-2px) scale(1.04)}
+.photo-marker .pic{width:100%;height:100%;border-radius:13px;display:grid;place-items:center;overflow:hidden;position:relative}
+.photo-marker .pic:before{content:"";position:absolute;inset:0;background:linear-gradient(145deg,#668b72,#203f36)}
+.photo-marker .pic:after{content:"";position:absolute;width:36px;height:14px;border-radius:50%;background:#87aeb1;right:-5px;bottom:5px;transform:rotate(-13deg);opacity:.78}
+.photo-marker .fish{position:relative;z-index:2;color:white;font-size:19px;font-weight:800;letter-spacing:-1px}
+.photo-marker .dot{position:absolute;right:-3px;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid white;z-index:4}
+.leaflet-div-icon{background:transparent!important;border:0!important}
+
+.locate{
+ position:fixed;z-index:1000;right:14px;bottom:calc(24px + env(safe-area-inset-bottom));
+ width:48px;height:48px;border:1px solid rgba(255,255,255,.6);border-radius:16px;background:var(--glass);
+ backdrop-filter:blur(20px);box-shadow:var(--shadow);display:grid;place-items:center;cursor:pointer
+}
+.locate svg{width:20px;height:20px;fill:none;stroke:#141714;stroke-width:1.8}
+
+.sheet{
+ position:fixed;z-index:1200;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));
+ max-width:520px;margin:auto;padding:8px 8px 14px;border-radius:27px;background:rgba(250,252,250,.94);
+ backdrop-filter:blur(28px) saturate(1.25);-webkit-backdrop-filter:blur(28px) saturate(1.25);
+ border:1px solid rgba(255,255,255,.72);box-shadow:0 22px 70px rgba(0,0,0,.28);
+ transform:translateY(calc(100% + 40px));opacity:0;transition:transform .28s cubic-bezier(.2,.8,.2,1),opacity .2s
+}
+.sheet.show{transform:translateY(0);opacity:1}
+.grab{width:34px;height:4px;border-radius:9px;background:#c8ccc9;margin:4px auto 8px}
+.cover{height:166px;border-radius:21px;position:relative;overflow:hidden;background:linear-gradient(145deg,#668b72,#173a32)}
+.cover:before{content:"";position:absolute;width:65%;height:42%;border-radius:50%;background:#71999e;right:-8%;bottom:-5%;transform:rotate(-8deg)}
+.cover:after{content:"BASS";position:absolute;left:18px;bottom:13px;color:rgba(255,255,255,.92);font-size:34px;font-weight:850;letter-spacing:-2px}
+.meta{padding:15px 10px 3px;display:flex;gap:12px;align-items:flex-start}
+.meta h2{font-size:18px;letter-spacing:-.45px;margin:0 0 5px}
+.meta p{font-size:12px;color:var(--muted);margin:3px 0}
+.x{margin-left:auto;width:34px;height:34px;border:0;border-radius:50%;background:#ecefed;color:#252925;font-size:16px;cursor:pointer}
+.tags{display:flex;gap:7px;flex-wrap:wrap;padding:5px 10px 2px}
+.tag{font-size:11px;font-weight:600;padding:8px 10px;border-radius:999px;background:#ecefed;color:#424743}
+.tag.primary{background:#151916;color:white}
+
+.toast{
+ position:fixed;z-index:1100;left:50%;bottom:calc(25px + env(safe-area-inset-bottom));
+ transform:translateX(-50%);padding:9px 13px;border-radius:999px;background:var(--glass-dark);
+ color:white;font-size:11px;font-weight:600;backdrop-filter:blur(18px);white-space:nowrap;
+ opacity:0;pointer-events:none;transition:.2s
+}
+.toast.show{opacity:1}
+
+@media(min-width:760px){
+ .top{left:24px;right:auto;top:24px;width:390px}
+ .mode{right:24px;top:24px}
+ .locate{right:24px;bottom:24px}
+ .sheet{left:24px;right:auto;bottom:24px;width:390px;margin:0}
+}
+</style>
+</head>
+<body class="satellite">
+<div id="map"></div>
+
+<header class="top">
+  <div class="identity"><strong>Bass Map</strong><small id="counter">4 GPS records</small></div>
+  <div class="grow"></div>
+  <button class="circle" id="fit" aria-label="전체 포인트 보기">
+    <svg viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>
+  </button>
+</header>
+
+<nav class="mode">
+  <button id="standardBtn">MAP</button>
+  <button id="satelliteBtn" class="active">SATELLITE</button>
+</nav>
+
+<button class="locate" id="locate" aria-label="현재 위치">
+  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+</button>
+
+<section class="sheet" id="sheet">
+ <div class="grab"></div>
+ <div class="cover"></div>
+ <div class="meta">
+   <div><h2 id="title"></h2><p id="date"></p><p id="coord"></p></div>
+   <button class="x" id="close">×</button>
+ </div>
+ <div class="tags" id="tags"></div>
+</section>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const spots=[
+ {lat:37.5252,lng:127.3108,title:"팔당 · 석축",date:"2026.10.03  17:42",fish:"43 cm",lure:"Free rig",note:"Rock edge"},
+ {lat:37.4867,lng:127.5174,title:"양평 · 수초",date:"2026.09.21  06:18",fish:"38 cm",lure:"No sinker",note:"Grass line"},
+ {lat:37.6020,lng:127.3430,title:"북한강 · 브레이크",date:"2026.08.30  18:07",fish:"46 cm",lure:"Crankbait",note:"Sunset"},
+ {lat:37.5512,lng:127.4211,title:"댐 하류 · 쉘로우",date:"2026.08.17  05:51",fish:"41 cm",lure:"Spinnerbait",note:"Morning"}
+];
+
+const standard=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+ maxZoom:19,attribution:"&copy; OpenStreetMap contributors"
+});
+const satellite=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
+ maxZoom:19,attribution:"Tiles &copy; Esri"
+});
+const map=L.map("map",{zoomControl:false,layers:[satellite],attributionControl:true,preferCanvas:true});
+const bounds=L.latLngBounds(spots.map(s=>[s.lat,s.lng]));
+map.fitBounds(bounds.pad(.28),{animate:false});
+
+function icon(i){
+ return L.divIcon({className:"",iconSize:[50,50],iconAnchor:[25,25],
+ html:`<div class="photo-marker"><div class="ring"><div class="pic"><span class="fish">${spots[i].fish.replace(" cm","")}</span></div></div><i class="dot"></i></div>`});
+}
+spots.forEach((s,i)=>L.marker([s.lat,s.lng],{icon:icon(i)}).addTo(map).on("click",()=>openSpot(s)));
+
+const sheet=document.getElementById("sheet");
+function openSpot(s){
+ document.getElementById("title").textContent=s.title;
+ document.getElementById("date").textContent=s.date;
+ document.getElementById("coord").textContent=`GPS  ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+ document.getElementById("tags").innerHTML=`<span class="tag primary">BASS ${s.fish}</span><span class="tag">${s.lure}</span><span class="tag">${s.note}</span>`;
+ sheet.classList.add("show");
+ map.flyTo([s.lat,s.lng],Math.max(map.getZoom(),14),{duration:.55});
+}
+document.getElementById("close").onclick=()=>sheet.classList.remove("show");
+document.getElementById("fit").onclick=()=>{sheet.classList.remove("show");map.fitBounds(bounds.pad(.28))};
+
+const sb=document.getElementById("standardBtn"), ib=document.getElementById("satelliteBtn");
+function setMode(mode){
+ if(mode==="sat"){
+  if(map.hasLayer(standard))map.removeLayer(standard); if(!map.hasLayer(satellite))satellite.addTo(map);
+  ib.classList.add("active");sb.classList.remove("active");document.body.classList.add("satellite");
+ }else{
+  if(map.hasLayer(satellite))map.removeLayer(satellite); if(!map.hasLayer(standard))standard.addTo(map);
+  sb.classList.add("active");ib.classList.remove("active");document.body.classList.remove("satellite");
+ }
+}
+sb.onclick=()=>setMode("map");ib.onclick=()=>setMode("sat");
+
+let userMarker=null;
+document.getElementById("locate").onclick=()=>{
+ const toast=document.getElementById("toast");
+ if(!navigator.geolocation){showToast("위치 기능을 사용할 수 없어");return}
+ navigator.geolocation.getCurrentPosition(pos=>{
+   const ll=[pos.coords.latitude,pos.coords.longitude];
+   if(userMarker)map.removeLayer(userMarker);
+   userMarker=L.circleMarker(ll,{radius:7,color:"#fff",weight:3,fillColor:"#1a73e8",fillOpacity:1}).addTo(map);
+   map.flyTo(ll,15,{duration:.7});
+ },()=>showToast("브라우저에서 위치 권한을 허용해줘"),{enableHighAccuracy:true,timeout:8000});
+};
+function showToast(t){const el=document.getElementById("toast");el.textContent=t;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2200)}
+</script>
+</body>
+</html>
