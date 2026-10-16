@@ -40,12 +40,6 @@ struct ContentView: View {
         let photos: [FishingPhoto]
     }
 
-    private var visibleWidthKilometers: Double {
-        guard let region = visibleRegion else { return 100 }
-        let latitudeRadians = region.center.latitude * .pi / 180
-        return abs(region.span.longitudeDelta) * 111.32 * max(0.1, abs(cos(latitudeRadians)))
-    }
-
     // Screen-relative grouping keeps marker density predictable as the map changes.
     // This is spatial clustering, not a verified reservoir boundary classification.
     private var clusters: [PhotoCluster] {
@@ -153,7 +147,9 @@ struct ContentView: View {
         }
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
-            detailLevel = MapDetailLevel.forVisibleWidth(visibleWidthKilometers)
+            let latitudeRadians = context.region.center.latitude * .pi / 180
+            let width = abs(context.region.span.longitudeDelta) * 111.32 * max(0.1, abs(cos(latitudeRadians)))
+            detailLevel = MapDetailLevel.forVisibleWidth(width)
         }
         .ignoresSafeArea()
     }
