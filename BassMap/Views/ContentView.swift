@@ -7,6 +7,81 @@ struct ContentView: View {
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var selectedPhoto: FishingPhoto?
     @State private var satelliteMode = true
+    @State private var visibleRegion: MKCoordinateRegion?
+    @State private var detailLevel: MapDetailLevel = .country
+
+    // These are initial UX thresholds, not fixed MapKit zoom levels.
+    private enum MapDetailLevel: Int {
+        case country = 1
+        case reservoir = 2
+        case shoreline = 3
+        case point = 4
+
+        var title: String {
+            switch self {
+            case .country: return "광역"
+            case .reservoir: return "지역"
+            case .shoreline: return "연안"
+            case .point: return "포인트"
+            }
+        }
+
+        static func forVisibleWidth(_ widthKilometers: Double) -> Self {
+            if widthKilometers >= 50 { return .country }
+            if widthKilometers >= 5 { return .reservoir }
+            if widthKilometers >= 0.5 { return .shoreline }
+            return .point
+        }
+    }
+
+    private struct PhotoCluster: Identifiable {
+        let id: String
+        let coordinate: CLLocationCoordinate2D
+        let photos: [FishingPhoto]
+    }
+
+    // Screen-relative grouping keeps marker density predictable as the map changes.
+    // This is spatial clustering, not a verified reservoir boundary classification.
+    private var clusters: [PhotoCluster] {
+        let photos = library.photos
+        guard !photos.isEmpty else { return [] }
+        guard detailLevel != .point else {
+            return photos.map {
+                PhotoCluster(id: $0.id, coordinate: $0.coordinate, photos: [$0])
+            }
+        }
+
+        let region = visibleRegion ?? MKCoordinateRegion(
+            center: photos[0].coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 1, longitudeDelta: 1)
+        )
+        let cellsAcross: Double
+        switch detailLevel {
+        case .country: cellsAcross = 4
+        case .reservoir: cellsAcross = 7
+        case .shoreline: cellsAcross = 11
+        case .point: cellsAcross = 1
+        }
+
+        let latitudeStep = max(0.00001, abs(region.span.latitudeDelta) / cellsAcross)
+        let longitudeStep = max(0.00001, abs(region.span.longitudeDelta) / cellsAcross)
+        let grouped = Dictionary(grouping: photos) { photo in
+            let latCell = Int(floor(photo.coordinate.latitude / latitudeStep))
+            let lonCell = Int(floor(photo.coordinate.longitude / longitudeStep))
+            return "\(latCell):\(lonCell)"
+        }
+
+        return grouped.map { key, members in
+            let latitude = members.map(\.coordinate.latitude).reduce(0, +) / Double(members.count)
+            let longitude = members.map(\.coordinate.longitude).reduce(0, +) / Double(members.count)
+            return PhotoCluster(
+                id: key,
+                coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                photos: members
+            )
+        }
+        .sorted { $0.id < $1.id }
+    }
 
     var body: some View {
         ZStack {
@@ -33,14 +108,31 @@ struct ContentView: View {
 
     private var map: some View {
         Map(position: $cameraPosition) {
-            ForEach(library.photos) { photo in
-                Annotation("", coordinate: photo.coordinate) {
-                    Button {
-                        selectedPhoto = photo
-                    } label: {
-                        PhotoPinView(asset: photo.asset)
+            ForEach(clusters) { cluster in
+                Annotation("", coordinate: cluster.coordinate) {
+                    if detailLevel == .point && cluster.photos.count == 1,
+                       let photo = cluster.photos.first {
+                        Button {
+                            selectedPhoto = photo
+                        } label: {
+                            PhotoPinView(asset: photo.asset)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            zoomToCluster(cluster)
+                        } label: {
+                            Text("\(cluster.photos.count)")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                .frame(minWidth: 38, minHeight: 38)
+                                .padding(4)
+                                .background(.regularMaterial, in: Circle())
+                                .overlay(Circle().strokeBorder(.green, lineWidth: 2))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("사진 \(cluster.photos.count)장, 확대하기")
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -53,7 +145,28 @@ struct ContentView: View {
             MapCompass()
             MapScaleView()
         }
+        .onMapCameraChange(frequency: .onEnd) { context in
+            visibleRegion = context.region
+            let latitudeRadians = context.region.center.latitude * .pi / 180
+            let width = abs(context.region.span.longitudeDelta) * 111.32 * max(0.1, abs(cos(latitudeRadians)))
+            detailLevel = MapDetailLevel.forVisibleWidth(width)
+        }
         .ignoresSafeArea()
+    }
+
+    private func zoomToCluster(_ cluster: PhotoCluster) {
+        // A group tap zooms one level closer without adding animation.
+        let currentSpan = visibleRegion?.span ?? MKCoordinateSpan(
+            latitudeDelta: 1, longitudeDelta: 1
+        )
+        let nextSpan = MKCoordinateSpan(
+            latitudeDelta: max(0.0005, currentSpan.latitudeDelta / 4),
+            longitudeDelta: max(0.0005, currentSpan.longitudeDelta / 4)
+        )
+        cameraPosition = .region(MKCoordinateRegion(
+            center: cluster.coordinate,
+            span: nextSpan
+        ))
     }
 
     private var header: some View {
@@ -61,7 +174,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Bass Map")
                     .font(.headline)
-                Text("\(library.photos.count)개의 GPS 사진")
+                Text("\(library.photos.count)개의 GPS 사진 · L\(detailLevel.rawValue) \(detailLevel.title)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
